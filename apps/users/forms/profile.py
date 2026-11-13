@@ -1,18 +1,31 @@
 # -*- coding: utf-8 -*-
 #
 from django import forms
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from captcha.fields import CaptchaField
 
 from common.utils import validate_ssh_public_key
+from authentication.forms import EncryptedField, CaptchaMixin
 from ..models import User
-
 
 __all__ = [
     'UserProfileForm', 'UserMFAForm', 'UserFirstLoginFinishForm',
     'UserPasswordForm', 'UserPublicKeyForm', 'FileForm',
     'UserTokenResetPasswordForm', 'UserForgotPasswordForm',
+    'UserCheckPasswordForm', 'UserCheckOtpCodeForm',
+    'UserForgotPasswordPreviewingForm'
 ]
+
+
+class UserCheckPasswordForm(forms.Form):
+    password = EncryptedField(
+        label=_('Password'), widget=forms.PasswordInput,
+        max_length=1024, strip=False
+    )
+
+
+class UserCheckOtpCodeForm(forms.Form):
+    otp_code = forms.CharField(label=_('MFA code'), max_length=6)
 
 
 class UserProfileForm(forms.ModelForm):
@@ -32,20 +45,19 @@ UserProfileForm.verbose_name = _("Profile")
 
 
 class UserMFAForm(forms.ModelForm):
-
     mfa_description = _(
         'When enabled, '
         'you will enter the MFA binding process the next time you log in. '
         'you can also directly bind in '
-        '"personal information -> quick modification -> change MFA Settings"!')
+        '"personal information -> quick modification -> change MFA Settings"!'
+    )
 
     class Meta:
         model = User
         fields = ['mfa_level']
         widgets = {'mfa_level': forms.RadioSelect()}
         help_texts = {
-            'mfa_level': _('* Enable MFA authentication '
-                           'to make the account more secure.'),
+            'mfa_level': _('* Enable MFA to make the account more secure.'),
         }
 
 
@@ -57,7 +69,7 @@ class UserFirstLoginFinishForm(forms.Form):
         'In order to protect you and your company, '
         'please keep your account, '
         'password and key sensitive information properly. '
-        '(for example: setting complex password, enabling MFA authentication)'
+        '(for example: setting complex password, enabling MFA)'
     )
 
 
@@ -65,12 +77,12 @@ UserFirstLoginFinishForm.verbose_name = _("Finish")
 
 
 class UserTokenResetPasswordForm(forms.Form):
-    new_password = forms.CharField(
+    new_password = EncryptedField(
         min_length=5, max_length=128,
         widget=forms.PasswordInput,
         label=_("New password")
     )
-    confirm_password = forms.CharField(
+    confirm_password = EncryptedField(
         min_length=5, max_length=128,
         widget=forms.PasswordInput,
         label=_("Confirm password")
@@ -86,12 +98,27 @@ class UserTokenResetPasswordForm(forms.Form):
 
 
 class UserForgotPasswordForm(forms.Form):
-    email = forms.EmailField(label=_("Email"))
-    captcha = CaptchaField(label=_("Captcha"))
+    email = forms.CharField(label=_("Email"), required=False)
+    country_code = forms.CharField(required=False)
+    sms = forms.CharField(
+        label=_('SMS'), required=False,
+        help_text=_('The phone number must contain an area code, for example, +86')
+    )
+    code = forms.CharField(
+        label=_('Verify code'), max_length=settings.SMS_CODE_LENGTH, required=False
+    )
+    form_type = forms.ChoiceField(
+        choices=[('sms', _('SMS')), ('email', _('Email'))],
+        widget=forms.HiddenInput({'value': 'email'})
+    )
+
+
+class UserForgotPasswordPreviewingForm(CaptchaMixin):
+    username = forms.CharField(label=_("Username"))
 
 
 class UserPasswordForm(UserTokenResetPasswordForm):
-    old_password = forms.CharField(
+    old_password = EncryptedField(
         max_length=128, widget=forms.PasswordInput,
         label=_("Old password")
     )

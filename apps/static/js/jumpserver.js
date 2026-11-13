@@ -125,8 +125,12 @@ function csrfSafeMethod(method) {
 }
 
 function setAjaxCSRFToken() {
-    var csrftoken = getCookie('csrftoken');
-    var sessionid = getCookie('sessionid');
+    let prefix = getCookie('SESSION_COOKIE_NAME_PREFIX');
+    if (!prefix || [`""`, `''`].indexOf(prefix) > -1) {
+        prefix = '';
+    }
+    var csrftoken = getCookie(`${prefix}csrftoken`);
+    var sessionid = getCookie(`${prefix}sessionid`);
 
     $.ajaxSetup({
         beforeSend: function (xhr, settings) {
@@ -138,10 +142,13 @@ function setAjaxCSRFToken() {
 }
 
 function activeNav(prefix) {
+    if (!prefix) {
+        prefix = '/core'
+    }
     var path = document.location.pathname;
-    if (prefix) {
-        path = path.replace(prefix, '');
-        console.log(path);
+    path = path.replace(prefix, '');
+    if (path === '/core/download/') {
+        return
     }
     var urlArray = path.split("/");
     var app = urlArray[1];
@@ -248,7 +255,7 @@ function formSubmit(props) {
                 noneFieldErrorRef.css('display', 'block');
                 noneFieldErrorRef.html(noneFieldErrorMsg);
             }
-            $('.has-error').get(0).scrollIntoView();
+            $('.has-error :visible').get(0).scrollIntoView();
         }
     })
 }
@@ -264,11 +271,17 @@ function requestApi(props) {
     if (props.flash_message === false) {
         flash_message = false;
     }
+    var dataBody = props.body || props.data;
+    if (typeof (dataBody) === "object") {
+        dataBody = JSON.stringify(dataBody)
+    }
+    var headers = props.headers || {}
 
     $.ajax({
         url: props.url,
         type: props.method || "PATCH",
-        data: props.body || props.data,
+        headers: headers,
+        data: dataBody,
         contentType: props.content_type || "application/json; charset=utf-8",
         dataType: props.data_type || "json"
     }).done(function (data, textStatue, jqXHR) {
@@ -315,16 +328,22 @@ function objectDelete(obj, name, url, redirectTo, title, success_message) {
     function doDelete() {
         var body = {};
         var success = function () {
-            // swal('Deleted!', "[ "+name+"]"+" has been deleted ", "success");
             if (!redirectTo) {
                 $(obj).parent().parent().remove();
             } else {
                 window.location.href = redirectTo;
             }
         };
-        var fail = function () {
-            // swal("错误", "删除"+"[ "+name+" ]"+"遇到错误", "error");
-            swal(gettext('Error'), "[ " + name + " ]" + gettext("Being used by the asset, please unbind the asset first."), "error");
+        var fail = function (responseText, responseJSON, status) {
+            var errorMsg = '';
+            if (responseJSON && responseJSON.error) {
+                errorMsg = '';
+            } else if (status === 404) {
+                errorMsg = gettext("Not found")
+            } else {
+                errorMsg = gettext("Server error")
+            }
+            swal(gettext('Error'), "[ " + name + " ] " + errorMsg);
         };
         requestApi({
             url: url,
@@ -417,13 +436,13 @@ function parseTableFilter(value) {
         return {}
     }
     var valuesArray = value.split(':');
-    for (var i=0; i<valuesArray.length; i++) {
+    for (var i = 0; i < valuesArray.length; i++) {
         var v = valuesArray[i].trim();
         if (!v) {
             continue
         }
         // 如果是最后一个元素，直接push，不需要再处理了, 因为最后一个肯定不是key
-        if (i === valuesArray.length -1) {
+        if (i === valuesArray.length - 1) {
             cleanValues.push(v);
             continue
         }
@@ -440,8 +459,8 @@ function parseTableFilter(value) {
     }
     var filter = {};
     var key = '';
-    for (i=0; i<cleanValues.length; i++) {
-        if (i%2 === 0) {
+    for (i = 0; i < cleanValues.length; i++) {
+        if (i % 2 === 0) {
             key = cleanValues[i]
         } else {
             value = cleanValues[i];
@@ -455,28 +474,7 @@ function parseTableFilter(value) {
 var jumpserver = {};
 jumpserver.checked = false;
 jumpserver.selected = {};
-jumpserver.language = {
-    processing: gettext('Loading') + '...',
-    search: gettext('Search'),
-    select: {
-        rows: {
-            _: gettext("Selected item %d"),
-            0: ""
-        }
-    },
-    lengthMenu: gettext("Per page _MENU_"),
-    info: gettext('Displays the results of items _START_ to _END_; A total of _TOTAL_ entries'),
-    infoFiltered: "",
-    infoEmpty: "",
-    zeroRecords: gettext("No match"),
-    emptyTable: gettext('No record'),
-    paginate: {
-        first: "«",
-        previous: "‹",
-        next: "›",
-        last: "»"
-    }
-};
+jumpserver.language = {};
 
 function setDataTablePagerLength(num) {
     $.fn.DataTable.ext.pager.numbers_length = num;
@@ -598,7 +596,7 @@ jumpserver.initServerSideDataTable = function (options) {
     //    hideDefaultDefs: false;
     // }
     var pagingNumbersLength = 5;
-    if (options.paging_numbers_length){
+    if (options.paging_numbers_length) {
         pagingNumbersLength = options.paging_numbers_length;
     }
     setDataTablePagerLength(pagingNumbersLength);
@@ -628,7 +626,7 @@ jumpserver.initServerSideDataTable = function (options) {
         style: select_style,
         selector: 'td:first-child'
     };
-    var dom = '<"#uc.pull-left"> <"pull-right"<"inline"l> <"#fb.inline"> <"inline"f><"#fa.inline">>' +
+    var dom = '<"#uc.pull-left"> <"pull-right"<"#lb.inline"> <"inline"l> <"#fb.inline"> <"inline"f><"#fa.inline">>' +
         'tr' +
         '<"row m-t"<"col-md-8"<"#op.col-md-6"><"col-md-6 text-center"i>><"col-md-4"p>>';
     var table = ele.DataTable({
@@ -646,7 +644,7 @@ jumpserver.initServerSideDataTable = function (options) {
         ajax: {
             url: options.ajax_url,
             error: function (jqXHR, textStatus, errorThrown) {
-                if (jqXHR.responseText && jqXHR.responseText.indexOf("%(value)s") !== -1 ) {
+                if (jqXHR.responseText && jqXHR.responseText.indexOf("%(value)s") !== -1) {
                     return
                 }
                 var msg = gettext("Unknown error occur");
@@ -713,11 +711,10 @@ jumpserver.initServerSideDataTable = function (options) {
             var rows = table.rows(indexes).data();
             $.each(rows, function (id, row) {
                 if (row.id && $.inArray(row.id, table.selected) === -1) {
-                    if (select.style === 'multi'){
+                    if (select.style === 'multi') {
                         table.selected.push(row.id);
                         table.selected_rows.push(row);
-                    }
-                    else{
+                    } else {
                         table.selected = [row.id];
                         table.selected_rows = [row];
                     }
@@ -767,6 +764,7 @@ jumpserver.initServerSideDataTable = function (options) {
         $('#uc').html(options.uc_html || '');
         $('#fb').html(options.fb_html || '');
         $('#fa').html(options.fa_html || '');
+        $('#lb').html(options.lb_html || '');
     });
     var table_id = table.settings()[0].sTableId;
     $('#' + table_id + ' .ipt_check_all').on('click', function () {
@@ -1015,7 +1013,6 @@ function initPopover($container, $progress, $idPassword, $el, password_check_rul
 }
 
 
-
 function rootNodeAddDom(ztree, callback) {
     var refreshIcon = "<a id='tree-refresh'><i class='fa fa-refresh'></i></a>";
     var rootNode = ztree.getNodes()[0];
@@ -1032,146 +1029,6 @@ function rootNodeAddDom(ztree, callback) {
         callback()
     })
 }
-
-function APIExportCSV(props) {
-    /*
-    {
-       listUrl:
-       objectsId:
-       template:
-       table:
-       params:
-    }
-     */
-    var _listUrl = props.listUrl;
-    var _objectsId = props.objectsId;
-    var _template = props.template;
-    var _table = props.table;
-    var _params = props.params || {};
-
-    var tableParams = _table.ajax.params();
-    var exportUrl = setUrlParam(_listUrl, 'format', 'csv');
-    if (_template) {
-        exportUrl = setUrlParam(exportUrl, 'template', _template)
-    }
-    for (var k in tableParams) {
-        if (datatableInternalParams.includes(k)) {
-            continue
-        }
-        if (!tableParams[k]) {
-            continue
-        }
-        exportUrl = setUrlParam(exportUrl, k, tableParams[k])
-    }
-    for (var k in _params) {
-        exportUrl = setUrlParam(exportUrl, k, tableParams[k])
-    }
-
-    if (!_objectsId) {
-        console.log(exportUrl);
-        window.open(exportUrl);
-        return
-    }
-
-    requestApi({
-        url: '/api/v1/common/resources/cache/',
-        data: JSON.stringify({resources: _objectsId}),
-        method: "POST",
-        flash_message: false,
-        success: function (data) {
-            exportUrl = setUrlParam(exportUrl, 'spm', data.spm);
-            console.log(exportUrl);
-            window.open(exportUrl);
-        },
-        failed: function () {
-            toastr.error(gettext('Export failed'));
-        }
-    });
-}
-
-function APIExportData(props) {
-    props = props || {};
-    $.ajax({
-        url: '/api/common/v1/resources/cache/',
-        type: props.method || "POST",
-        data: props.body,
-        contentType: props.content_type || "application/json; charset=utf-8",
-        dataType: props.data_type || "json",
-        success: function (data) {
-            var export_url = props.success_url;
-            var params = props.params || {};
-            params['format'] = props.format;
-            params['spm'] = data.spm;
-            for (var k in params) {
-                export_url = setUrlParam(export_url, k, params[k])
-            }
-            window.open(export_url);
-        },
-        error: function () {
-            toastr.error(gettext('Export failed'));
-        }
-    })
-}
-
-function APIImportData(props) {
-    props = props || {};
-    $.ajax({
-        url: props.url,
-        type: props.method || "POST",
-        processData: false,
-        data: props.body,
-        contentType: props.content_type || 'text/csv',
-        success: function (data) {
-            if (props.method === 'POST') {
-                $('#created_failed').html('');
-                $('#created_failed_detail').html('');
-                $('#success_created').html(gettext("Import Success"));
-                $('#success_created_detail').html("Count" + ": " + data.length);
-            } else {
-                $('#updated_failed').html('');
-                $('#updated_failed_detail').html('');
-                $('#success_updated').html(gettext("Update Success"));
-                $('#success_updated_detail').html(gettext("Count") + ": " + data.length);
-            }
-
-            props.data_table.ajax.reload()
-        },
-        error: function (error) {
-            var data = error.responseJSON;
-            console.log(data);
-            if (data instanceof Array) {
-                var html = '';
-                var li = '';
-                var err = '';
-                $.each(data, function (index, item) {
-                    err = '';
-                    for (var prop in item) {
-                        err += prop + ": " + item[prop][0] + " "
-                    }
-                    if (err) {
-                        li = "<li>" + "Line " + (++index) + ". " + err + "</li>";
-                        html += li
-                    }
-                });
-                html = "<ul>" + html + "</ul>"
-            } else {
-                html = error.responseText
-            }
-            if (props.method === 'POST') {
-                $('#success_created').html('');
-                $('#success_created_detail').html('');
-                $('#created_failed').html(gettext("Import failed"));
-                $('#created_failed_detail').html(html);
-            } else {
-                $('#success_updated').html('');
-                $('#success_updated_detail').html('');
-                $('#updated_failed').html(gettext("Update failed"));
-                $('#updated_failed_detail').html(html);
-            }
-        }
-    })
-}
-
 
 function htmlEscape(d) {
     return typeof d === 'string' ?
@@ -1201,6 +1058,14 @@ function objectAttrsIsBool(obj, attrs) {
             obj[attr] = false
         } else {
             obj[attr] = ['on', '1', 'true', 'True'].includes(obj[attr]);
+        }
+    })
+}
+
+function objectAttrsIsNumber(obj, attrs) {
+    attrs.forEach(function (attr) {
+        if (!obj[attr]) {
+            obj[attr] = null;
         }
     })
 }
@@ -1237,7 +1102,8 @@ function toSafeDateISOStr(s) {
 
 function toSafeLocalDateStr(d) {
     var date = safeDate(d);
-    var date_s = date.toLocaleString(getUserLang(), {hour12: false});
+    // var date_s = date.toLocaleString(getUserLang(), {hour12: false});
+    var date_s = date.toLocaleString(getUserLang(), {hourCycle: "h23"});
     return date_s.split("/").join('-')
 }
 
@@ -1305,7 +1171,6 @@ function readFile(ref) {
 }
 
 
-
 function select2AjaxInit(option) {
     /*
     {
@@ -1361,9 +1226,11 @@ function usersSelect2Init(selector, url, disabledData) {
     if (!url) {
         url = '/api/v1/users/users/'
     }
+
     function displayFormat(v) {
-        return v.name + '(' + v.username +')';
+        return v.name + '(' + v.username + ')';
     }
+
     var option = {
         url: url,
         selector: selector,
@@ -1378,9 +1245,11 @@ function nodesSelect2Init(selector, url, disabledData) {
     if (!url) {
         url = '/api/v1/assets/nodes/'
     }
+
     function displayFormat(v) {
         return v.full_value;
     }
+
     var option = {
         url: url,
         selector: selector,
@@ -1395,12 +1264,11 @@ function showCeleryTaskLog(taskId) {
     window.open(url, '', 'width=900,height=600')
 }
 
-function getUserLang(){
-    let userLangZh = document.cookie.indexOf('django_language=en');
-    if (userLangZh === -1){
+function getUserLang() {
+    let userLangEN = document.cookie.indexOf('django_language=en');
+    if (userLangEN === -1) {
         return 'zh-CN'
-    }
-    else{
+    } else {
         return 'en-US'
     }
 }
@@ -1436,8 +1304,7 @@ function initDateRangePicker(selector, options) {
     };
     if (getUserLang() === 'zh-CN') {
         defaultOption.locale = zhLocale;
-    }
-    else{
+    } else {
         // en-US
         defaultOption.locale = enLocale;
     }
@@ -1446,5 +1313,39 @@ function initDateRangePicker(selector, options) {
 }
 
 function reloadPage() {
-    setTimeout( function () {window.location.reload();}, 300);
+    setTimeout(function () {
+        window.location.reload();
+    }, 300);
 }
+
+function isEmptyObject(obj) {
+    return Object.keys(obj).length === 0
+}
+
+function getStatusIcon(status, mapping, title) {
+    var navy = '<i class="fa fa-circle text-navy" title=""></i>';
+    var danger = '<i class="fa fa-circle text-danger" title=""></i>';
+    var warning = '<i class="fa fa-circle text-warning" title=""></i>';
+    var icons = {
+        navy: navy,
+        danger: danger,
+        warning: warning
+    };
+    var defaultMapping = {
+        true: 'navy',
+        false: 'danger',
+        1: 'navy',
+        0: 'danger',
+        default: 'navy'
+    };
+    if (!mapping) {
+        mapping = defaultMapping;
+    }
+    var name = mapping[status] || mapping['default'];
+    var icon = icons[name];
+    if (title) {
+        icon = icon.replace('title=""', 'title="' + title + '"')
+    }
+    return icon;
+}
+
